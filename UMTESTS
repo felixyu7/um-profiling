@@ -1,0 +1,10 @@
+add.um
+division.um
+halt.um
+halt-verbose.um
+map_segment.um
+unmap_segment.um
+multiply.um
+print-passed.um
+conditional_move.um
+bitwise_NAND.um
