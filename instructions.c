@@ -16,10 +16,6 @@
 #include "instructions.h"
 #include "assert.h"
 
-
-const long MOD_CONST= 4294967296; /*2^32*/
-
-
 /*
   Parameters: pointers to registers A,B,C
   Returns: none
@@ -35,7 +31,7 @@ void addition(uint32_t *A, uint32_t *B, uint32_t *C)
         assert(B != NULL);
         assert(C != NULL);
 
-        *A = (*B + *C) % MOD_CONST;
+        *A = (*B + *C) % 4294967296;
 }
 
 
@@ -54,7 +50,7 @@ void multiplication(uint32_t *A, uint32_t *B, uint32_t *C)
         assert(B != NULL);
         assert(C != NULL);
 
-        *A = ((*B) * (*C)) % MOD_CONST;
+        *A = ((*B) * (*C)) % 4294967296;
 }
 
 
@@ -165,7 +161,7 @@ void input(uint32_t *C, FILE *I_O_Device)
         else { 
                 /*register C is loaded with a full 32-bit word in which
                  every bit is 1*/
-                *C = MOD_CONST - 1;
+                *C = 4294967295;
         }
 }
 

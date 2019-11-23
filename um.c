@@ -32,11 +32,9 @@ UM UM_init(FILE *source);
 void execute_inst(UM machine);
 void UM_free(UM machine);
 void UM_execute(UM machine);
-void run_instruction(UM machine, uint32_t inst, bool *status);
+void run_instruction(UM machine, uint32_t inst, bool *status, uint32_t **segment);
 bool valid_extension(char *);
 
-static inline uint64_t shl(uint64_t word, unsigned bits);
-static inline uint64_t shr(uint64_t word, unsigned bits);
 bool Bitpack_fitsu(uint64_t n, unsigned width);
 uint64_t Bitpack_getu(uint64_t word, unsigned width, unsigned lsb);
 uint64_t Bitpack_newu(uint64_t word, unsigned width, unsigned lsb,
@@ -137,10 +135,11 @@ void UM_execute(UM machine)
         uint32_t curr;
         bool status = false;
 
+        uint32_t *segment = get_segment(machine->mem, 0);
         /* while halt has not been called */
         while (status == false) {
-                curr = get_word(machine->mem, 0, machine->prog_counter);
-                run_instruction(machine, curr, &status);
+                curr = segment[machine->prog_counter + 1];
+                run_instruction(machine, curr, &status, &segment);
                 machine->prog_counter++;
         }
 }
@@ -154,15 +153,39 @@ void UM_execute(UM machine)
   an instruction that UM does not recognize, then this function WILL EXIT the
   entire run.
 */
-void run_instruction(UM machine, uint32_t inst, bool *status)
+void run_instruction(UM machine, uint32_t inst, bool *status, uint32_t **segment)
 {
+        (void)segment;
         uint32_t opcode = Bitpack_getu(inst, 4, 28);
-        uint32_t A_index = Bitpack_getu(inst, 3, 6);
-        uint32_t B_index = Bitpack_getu(inst, 3, 3);
-        uint32_t C_index = Bitpack_getu(inst, 3, 0);
-        uint32_t *A = &((machine->registers)[A_index]);
-        uint32_t *B = &((machine->registers)[B_index]);
-        uint32_t *C = &((machine->registers)[C_index]);
+        uint32_t A_index = 0;
+        uint32_t B_index = 0;
+        uint32_t C_index = 0;
+        uint32_t *A = NULL;
+        uint32_t *B = NULL;
+        uint32_t *C = NULL;
+        /* load_value is special case */
+        if (opcode != 13) {
+                if (opcode == 9 || opcode == 10 || opcode == 11) {
+                        /* unmap, output, input only use 1 register */
+                        C_index = Bitpack_getu(inst, 3, 0);
+                        C = &((machine->registers)[C_index]);
+                }
+                else if (opcode == 8 || opcode == 12) { 
+                        /* map and load_program only use 2 registers */
+                        B_index = Bitpack_getu(inst, 3, 3);
+                        C_index = Bitpack_getu(inst, 3, 0);
+                        B = &((machine->registers)[B_index]);
+                        C = &((machine->registers)[C_index]);
+                }
+                else {
+                        A_index = Bitpack_getu(inst, 3, 6);
+                        B_index = Bitpack_getu(inst, 3, 3);
+                        C_index = Bitpack_getu(inst, 3, 0);
+                        A = &((machine->registers)[A_index]);
+                        B = &((machine->registers)[B_index]);
+                        C = &((machine->registers)[C_index]);
+                }
+        }
         uint32_t value;
 
         switch (opcode) {
@@ -206,6 +229,7 @@ void run_instruction(UM machine, uint32_t inst, bool *status)
                         load_program(machine->mem, B, C);
                         /* -1 because it iterates again upon return */
                         machine->prog_counter = *C - 1;
+                        *segment = get_segment(machine->mem, 0);
                         break;
                 case 13:
                         /* special case, re bitpack */
@@ -236,51 +260,46 @@ void UM_free(UM machine) {
 
 uint64_t Bitpack_getu(uint64_t word, unsigned width, unsigned lsb)
 {
-        unsigned hi = lsb + width; /* one beyond the most significant bit */
-        assert(hi <= 64);
-        /* different type of right shift */
-        return shr(shl(word, 64 - hi),
-                   64 - width); 
-}
+        assert(width <= 64);
+        assert((width + lsb) <= 64);
+        if (width == 0) {
+                return 0;
+        }
 
-uint64_t Bitpack_newu(uint64_t word, unsigned width, unsigned lsb,
-                      uint64_t value)
-{
-        unsigned hi = lsb + width; /* one beyond the most significant bit */
-        assert(hi <= 64);
-        if (!Bitpack_fitsu(value, width))
-                RAISE(Bitpack_Overflow);
-        return shl(shr(word, hi), hi)                 /* high part */
-                | shr(shl(word, 64 - lsb), 64 - lsb)  /* low part  */
-                | (value << lsb);                     /* new part  */
+        uint64_t temp = ~0;
+        temp = temp >> (64 - width) << lsb;
+        return (word & temp) >> lsb;
 }
 
 bool Bitpack_fitsu(uint64_t n, unsigned width)
 {
-        if (width >= 64)
+        uint64_t temp = 1;
+        if (width == 0) {
+                return false;
+        }
+        if (n >= temp << width) {
+                return false;
+        }
+        else {
                 return true;
-        /* thanks to Jai Karve and John Bryan  */
-        /* clever shortcut instead of 2 shifts */
-        return shr(n, width) == 0; 
+        }
 }
 
-static inline uint64_t shl(uint64_t word, unsigned bits)
+uint64_t Bitpack_newu(uint64_t word, unsigned width, unsigned lsb, 
+        uint64_t value)
 {
-        assert(bits <= 64);
-        if (bits == 64)
-                return 0;
-        else
-                return word << bits;
-}
+        assert(width <= 64);
+        assert((width + lsb) <= 64);
 
-/*
- * shift R logical
- */
-static inline uint64_t shr(uint64_t word, unsigned bits)
-{
-        assert(bits <= 64);
-        if (bits == 64)
-                return 0;
-        else
-                return word >> bits;
+        if (!Bitpack_fitsu(value, width)) {
+                RAISE(Bitpack_Overflow);
+        }
+
+        uint64_t temp = ~0;
+        temp = temp >> (64 - width) << lsb;
+
+        word = (word & ~temp);
+        value = value << lsb;
+
+        return (word | value);
 }
