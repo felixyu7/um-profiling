@@ -14,7 +14,6 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <stdlib.h>
-#include <bitpack.h>
 #include <string.h>
 #include "seq.h"
 #include "mem.h"
@@ -35,6 +34,15 @@ void UM_free(UM machine);
 void UM_execute(UM machine);
 void run_instruction(UM machine, uint32_t inst, bool *status);
 bool valid_extension(char *);
+
+static inline uint64_t shl(uint64_t word, unsigned bits);
+static inline uint64_t shr(uint64_t word, unsigned bits);
+bool Bitpack_fitsu(uint64_t n, unsigned width);
+uint64_t Bitpack_getu(uint64_t word, unsigned width, unsigned lsb);
+uint64_t Bitpack_newu(uint64_t word, unsigned width, unsigned lsb,
+                      uint64_t value);
+
+Except_T Bitpack_Overflow = { "Overflow packing bits" };
 
 int main(int argc, char *argv[])
 {
@@ -224,4 +232,55 @@ void UM_free(UM machine) {
         delete_mem(machine->mem);
         FREE(machine->registers);
         FREE(machine);
+}
+
+uint64_t Bitpack_getu(uint64_t word, unsigned width, unsigned lsb)
+{
+        unsigned hi = lsb + width; /* one beyond the most significant bit */
+        assert(hi <= 64);
+        /* different type of right shift */
+        return shr(shl(word, 64 - hi),
+                   64 - width); 
+}
+
+uint64_t Bitpack_newu(uint64_t word, unsigned width, unsigned lsb,
+                      uint64_t value)
+{
+        unsigned hi = lsb + width; /* one beyond the most significant bit */
+        assert(hi <= 64);
+        if (!Bitpack_fitsu(value, width))
+                RAISE(Bitpack_Overflow);
+        return shl(shr(word, hi), hi)                 /* high part */
+                | shr(shl(word, 64 - lsb), 64 - lsb)  /* low part  */
+                | (value << lsb);                     /* new part  */
+}
+
+bool Bitpack_fitsu(uint64_t n, unsigned width)
+{
+        if (width >= 64)
+                return true;
+        /* thanks to Jai Karve and John Bryan  */
+        /* clever shortcut instead of 2 shifts */
+        return shr(n, width) == 0; 
+}
+
+static inline uint64_t shl(uint64_t word, unsigned bits)
+{
+        assert(bits <= 64);
+        if (bits == 64)
+                return 0;
+        else
+                return word << bits;
+}
+
+/*
+ * shift R logical
+ */
+static inline uint64_t shr(uint64_t word, unsigned bits)
+{
+        assert(bits <= 64);
+        if (bits == 64)
+                return 0;
+        else
+                return word >> bits;
 }
