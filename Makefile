@@ -12,7 +12,7 @@ EXECS   = um
 
 all: $(EXECS)
 
-um: um.o memory.o instructions.o
+um: um.o
 	$(CC) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 # To get *any* .o file, compile its .c file with the following rule.

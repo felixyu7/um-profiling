@@ -15,10 +15,16 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include "seq.h"
-#include "mem.h"
 #include "assert.h"
-#include "instructions.h"
+//#include "instructions.h"
+typedef struct Main_memory {
+        Seq_T mapped;
+        Seq_T unmapped;
+} *Main_memory;
+
 
 typedef struct UM {
         uint32_t *registers;
@@ -39,6 +45,20 @@ bool Bitpack_fitsu(uint64_t n, unsigned width);
 uint64_t Bitpack_getu(uint64_t word, unsigned width, unsigned lsb);
 uint64_t Bitpack_newu(uint64_t word, unsigned width, unsigned lsb,
                       uint64_t value);
+
+
+        
+/*************************************************************************/
+Main_memory init_memory();
+uint32_t *get_segment(Main_memory mem, uint32_t address);
+void put_word(Main_memory mem, uint32_t address, int offset, uint32_t val);
+uint32_t get_word(Main_memory mem, uint32_t address, int offset);
+uint32_t map(Main_memory mem, size_t size);
+void unmap(Main_memory mem, uint32_t address);
+void new_program(Main_memory mem, uint32_t source);
+void delete_mem(Main_memory mem);
+void input(uint32_t *C, FILE *I_O_Device);
+
 
 Except_T Bitpack_Overflow = { "Overflow packing bits" };
 
@@ -97,7 +117,7 @@ int main(int argc, char *argv[])
         uint32_t inst;
         bool status = false;
 
-        uint32_t *segment = get_segment(mem, 0);
+        uint32_t *segment = Seq_get(mem->mapped, 0);
         /* while halt has not been called */
         while (status == false) {
                 inst = segment[prog_counter + 1];
@@ -207,6 +227,7 @@ int main(int argc, char *argv[])
                                 /*creates new segment with size equal to $r[C] and initializes
                                         each word to 0*/
                                 *B = map(mem, *C);
+                                
                                 break;
                         case 9:
                                 assert(C != NULL);
@@ -254,7 +275,7 @@ int main(int argc, char *argv[])
                                 new_program(mem, *B);
                                 /* -1 because it iterates again upon return */
                                 prog_counter = *C - 1;
-                                segment = get_segment(mem, 0);
+                                segment = Seq_get(mem->mapped, 0);
                                 break;
                         case 13:
                         /* special case, re bitpack */
@@ -276,188 +297,9 @@ int main(int argc, char *argv[])
 
         /* UM_free */
         delete_mem(mem);
-        FREE(registers);
+        free(registers);
         fclose(source);
-	exit(EXIT_SUCCESS);
-}
-
-
-/*
-  Parameters: file stream of the input file, universal machine representation
-  Returns: none
-
-  Does: reads the inputted file, and extracts all the instructions it contains
-  and inputs them into the 0 segment
-*/
-void read_file(FILE *source, UM machine) {
-        assert(source != NULL);
-
-        /* seek the end of file to get file size */
-        fseek(source, 0L, SEEK_END);
-        int size = ftell(source);
-        rewind(source);
-
-        uint32_t word = 0;
-        unsigned char c;
-
-        /* should be assigned the 0 address */
-        int zero = map(machine->mem, size);
-        assert(zero == 0);
-
-        for (int i = 0; i < size/4; i++) {
-                c = getc(source);
-                word = Bitpack_newu(word, 8, 24, (uint64_t)c);
-                c = getc(source);
-                word = Bitpack_newu(word, 8, 16, (uint64_t)c);
-                c = getc(source);
-                word = Bitpack_newu(word, 8, 8, (uint64_t)c);
-                c = getc(source);
-                word = Bitpack_newu(word, 8, 0, (uint64_t)c);
-
-                put_word(machine->mem, 0, i, word); /* put in 0 segment */
-        }
-}
-
-/*
-  Parameters: file stream of the input file
-  Returns: universal machine representation
-
-  Does: initializes a new UM, with the given program
-*/
-UM UM_init(FILE *source) {
-
-        UM machine = malloc(sizeof(struct UM));
-        machine->mem = init_memory();
-        /* load file */
-        read_file(source, machine);
-
-        machine->registers = calloc(8, sizeof(uint32_t));
-
-        machine->prog_counter = 0;
-        return machine;
-}
-
-/*
-  Parameters: universal machine representation
-  Returns: none
-
-  Does: executes the program currently loaded in the UM. It will run through
-  all instructions until the program is instructed to halt.
-*/
-void UM_execute(UM machine) 
-{
-        uint32_t curr;
-        bool status = false;
-
-        uint32_t *segment = get_segment(machine->mem, 0);
-        /* while halt has not been called */
-        while (status == false) {
-                curr = segment[machine->prog_counter + 1];
-                run_instruction(machine, curr, &status, &segment);
-                machine->prog_counter++;
-        }
-}
-
-/*
-  Parameters: universal machine representation, current instruction, 
-  status of the program running or not
-  Returns: none
-
-  Does: Calls the associated instruction on the UM. If the program is given
-  an instruction that UM does not recognize, then this function WILL EXIT the
-  entire run.
-*/
-void run_instruction(UM machine, uint32_t inst, bool *status, uint32_t **segment)
-{
-        (void)segment;
-        uint32_t opcode = Bitpack_getu(inst, 4, 28);
-        uint32_t A_index = 0;
-        uint32_t B_index = 0;
-        uint32_t C_index = 0;
-        uint32_t *A = NULL;
-        uint32_t *B = NULL;
-        uint32_t *C = NULL;
-        /* load_value is special case */
-        if (opcode != 13) {
-                if (opcode == 9 || opcode == 10 || opcode == 11) {
-                        /* unmap, output, input only use 1 register */
-                        C_index = Bitpack_getu(inst, 3, 0);
-                        C = &((machine->registers)[C_index]);
-                }
-                else if (opcode == 8 || opcode == 12) { 
-                        /* map and load_program only use 2 registers */
-                        B_index = Bitpack_getu(inst, 3, 3);
-                        C_index = Bitpack_getu(inst, 3, 0);
-                        B = &((machine->registers)[B_index]);
-                        C = &((machine->registers)[C_index]);
-                }
-                else {
-                        A_index = Bitpack_getu(inst, 3, 6);
-                        B_index = Bitpack_getu(inst, 3, 3);
-                        C_index = Bitpack_getu(inst, 3, 0);
-                        A = &((machine->registers)[A_index]);
-                        B = &((machine->registers)[B_index]);
-                        C = &((machine->registers)[C_index]);
-                }
-        }
-        uint32_t value;
-
-        switch (opcode) {
-                case 0:
-                        conditional_move(A, B, C);
-                        break;
-                case 1:
-                        segmented_load(machine->mem, A, B, C);
-                        break;
-                case 2:
-                        segmented_store(machine->mem, A, B, C);
-                        break;
-                case 3:
-                        addition(A, B, C);
-                        break;
-                case 4:
-                        multiplication(A, B, C);
-                        break;
-                case 5:
-                        division(A, B, C);
-                        break;
-                case 6:
-                        bitwise_NAND(A, B, C);
-                        break;
-                case 7:
-                        halt(status);
-                        break;
-                case 8:
-                        map_segment(machine->mem, C, B);
-                        break;
-                case 9:
-                        unmap_segment(machine->mem, C);
-                        break;
-                case 10:
-                        output(C, stdout);
-                        break;
-                case 11:
-                        input(C, stdin);
-                        break;
-                case 12:
-                        load_program(machine->mem, B, C);
-                        /* -1 because it iterates again upon return */
-                        machine->prog_counter = *C - 1;
-                        *segment = get_segment(machine->mem, 0);
-                        break;
-                case 13:
-                        /* special case, re bitpack */
-                        A_index = Bitpack_getu(inst, 3, 25);
-                        A = &((machine->registers)[A_index]);
-                        value = Bitpack_getu(inst, 25, 0);
-                        load_value(A, value);
-                        break;
-                default:
-                        fprintf(stderr, "Invalid instruction. opcode %d\n", 
-                                opcode);
-                        exit(EXIT_FAILURE);
-                        break;
-        }
+	    exit(EXIT_SUCCESS);
 }
 
 /*
@@ -468,8 +310,8 @@ void run_instruction(UM machine, uint32_t inst, bool *status, uint32_t **segment
 */
 void UM_free(UM machine) {
         delete_mem(machine->mem);
-        FREE(machine->registers);
-        FREE(machine);
+        free(machine->registers);
+        free(machine);
 }
 
 uint64_t Bitpack_getu(uint64_t word, unsigned width, unsigned lsb)
@@ -516,4 +358,197 @@ uint64_t Bitpack_newu(uint64_t word, unsigned width, unsigned lsb,
         value = value << lsb;
 
         return (word | value);
+}
+
+
+
+/*
+  Parameters: none
+  Returns: memory struct
+
+  Does: creates a memory struct and initializes it to the content
+        of the pointer that was passed in
+*/
+Main_memory init_memory()
+{
+        Main_memory ret = malloc(sizeof(struct Main_memory));
+
+        ret->mapped = Seq_new(0);
+
+        ret->unmapped = Seq_new(0);
+        for (int i = 0; i < 128; i++) {
+                Seq_addhi(ret->unmapped, (void *)(uintptr_t)i);
+        }
+
+        return ret;
+}
+
+
+
+/*
+  Parameters: memory struct and segment index
+  Returns: pointer to a segment
+
+  Does: retrieves a pointer to a particular segment from mapped segments
+*/
+uint32_t *get_segment(Main_memory mem, uint32_t address) 
+{
+        return (uint32_t *)Seq_get(mem->mapped, address);
+}
+
+
+void put_word(Main_memory mem, uint32_t address, int offset, uint32_t val)
+{
+        uint32_t *temp = get_segment(mem, address);
+        /* add one to account for extra space to store size */
+        temp[offset + 1] = val;
+}
+
+/*
+  Parameters: memory struct, segment index, and offset
+  Returns: uint32_t value
+
+  Does: retrieves a word at $m[address][offset]
+*/
+uint32_t get_word(Main_memory mem, uint32_t address, int offset)
+{
+        uint32_t *temp = get_segment(mem, address);
+        assert(temp != NULL);
+        /* add one to account for extra space to store size */
+        return temp[offset + 1];
+}
+
+/*
+  Parameters: memory struct and int value
+  Returns: uint32_t value that represents address to the mapped segment
+
+  Does: maps a segment of given size and it also initializes every
+                word in the segment
+*/
+uint32_t map(Main_memory mem, size_t size)
+{
+        int curr_length = Seq_length(mem->mapped);
+
+        /* if there are no more unmapped addresses, make more */
+        if (Seq_length(mem->unmapped) == 0) {
+                for (int i = curr_length; i < curr_length + 128; i++) {
+                        Seq_addhi(mem->unmapped, (void *)(uintptr_t)i);
+                }
+        }
+
+        uint32_t *new_seg = calloc(size + 1, sizeof(uint32_t));
+        assert(new_seg);
+        new_seg[0] = size; /* tracks size of array */
+        uint32_t address = (uint32_t)(uintptr_t)Seq_remlo(mem->unmapped);
+
+        /* check that address does not go out of bounds in the mapped seq */
+        if ((int)address >= curr_length) {
+                Seq_addhi(mem->mapped, new_seg);
+        }
+        else {
+                Seq_put(mem->mapped, address, new_seg);
+        }
+
+        return address;
+}
+
+
+/*
+  Parameters: memory struct and int index
+  Returns: none
+
+  Does: unmaps segment at mem[address];
+*/
+void unmap(Main_memory mem, uint32_t address) 
+{
+        uint32_t *temp = get_segment(mem, address);
+        assert(temp != NULL);
+        free(temp); /* free memory associated */
+        Seq_put(mem->mapped, address, NULL); /* remove from mapped seq */
+
+        Seq_addlo(mem->unmapped, (void *)(uintptr_t)address);
+}
+
+/*
+  Parameters: memory struct and address of the new program
+  Returns: none
+
+  Does: destroys the current 0 segment, and replaces it with the given
+  segment
+*/
+void new_program(Main_memory mem, uint32_t source)
+{      
+        /* if source program is already the 0 segment */
+        if (source == 0) {
+                return;
+        }
+
+        uint32_t *new_program = Seq_get(mem->mapped, source);
+        uint32_t size = new_program[0];
+
+        /* create a new brand new 0 segment with the new size */
+        unmap(mem, 0);
+
+        /* should be assigned the 0 address */
+        int zero = map(mem, size);
+        assert(zero == 0);
+
+        uint32_t *zero_segm = Seq_get(mem->mapped, 0);
+
+        /* copy memory over from new program to the 0 segment */
+        for (int i = 0; i < (int)(size + 1); i++) {
+                zero_segm[i] = new_program[i];
+        }
+}
+
+/*
+  Parameters: Memory struct
+  Returns: none
+
+  Does: frees all memory associated with the memory struct
+*/
+void delete_mem(Main_memory mem)
+{
+        int curr_length = Seq_length(mem->mapped);
+
+        for (int i = 0; i < curr_length; i++) {
+                free(get_segment(mem, i));
+        }
+
+        Seq_free(&mem->mapped);
+        Seq_free(&mem->unmapped);
+        free(mem);
+}
+
+
+
+
+/*
+  Parameters: pointer to register C
+  Returns: none
+
+  Does: receives input from I/O device, then loads the value
+                into register C. the value shall be between 0 -> 255
+*/
+void input(uint32_t *C, FILE *I_O_Device)
+{
+        (void) I_O_Device;
+        /*C shall never be Null*/
+        assert(C != NULL);
+
+        /*read in an 8 byte value*/
+        char data = fgetc(I_O_Device);
+        if(data != EOF){ 
+                if(data == 10){ /*catches new line*/
+                        input(C, I_O_Device);
+                }
+                else{
+                        *C = data;
+                }
+        }
+        else { 
+                /*register C is loaded with a full 32-bit word in which
+                 every bit is 1*/
+                *C = 4294967295;
+        }
 }
