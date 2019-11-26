@@ -59,10 +59,224 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "Error: Invalid number of arguments.\n");
                 exit(EXIT_FAILURE);
         }
-        UM machine;
-        machine = UM_init(source);
-        UM_execute(machine);
-        UM_free(machine);
+
+        /* UM_init */ 
+        Main_memory mem = init_memory();
+
+        /* read_file */ 
+        /* load file */
+        fseek(source, 0L, SEEK_END);
+        int size = ftell(source);
+        rewind(source);
+
+        uint32_t word = 0;
+        unsigned char c;
+
+        /* should be assigned the 0 address */
+        int zero = map(mem, size);
+        assert(zero == 0);
+
+        for (int i = 0; i < size/4; i++) {
+                c = getc(source);
+                word = Bitpack_newu(word, 8, 24, (uint64_t)c);
+                c = getc(source);
+                word = Bitpack_newu(word, 8, 16, (uint64_t)c);
+                c = getc(source);
+                word = Bitpack_newu(word, 8, 8, (uint64_t)c);
+                c = getc(source);
+                word = Bitpack_newu(word, 8, 0, (uint64_t)c);
+
+                put_word(mem, 0, i, word); /* put in 0 segment */
+        }
+
+        uint32_t *registers = calloc(8, sizeof(uint32_t));
+
+        uint32_t prog_counter = 0;
+
+        /* UM_execute */                
+        uint32_t inst;
+        bool status = false;
+
+        uint32_t *segment = get_segment(mem, 0);
+        /* while halt has not been called */
+        while (status == false) {
+                inst = segment[prog_counter + 1];
+
+                /* run_instruction */
+                uint32_t opcode = Bitpack_getu(inst, 4, 28);
+                uint32_t A_index = 0;
+                uint32_t B_index = 0;
+                uint32_t C_index = 0;
+                uint32_t *A = NULL;
+                uint32_t *B = NULL;
+                uint32_t *C = NULL;
+                /* load_value is special case */
+                if (opcode != 13) {
+                        if (opcode == 9 || opcode == 10 || opcode == 11) {
+                                /* unmap, output, input only use 1 register */
+                                C_index = Bitpack_getu(inst, 3, 0);
+                                C = &((registers)[C_index]);
+                        }
+                        else if (opcode == 8 || opcode == 12) { 
+                                /* map and load_program only use 2 registers */
+                                B_index = Bitpack_getu(inst, 3, 3);
+                                C_index = Bitpack_getu(inst, 3, 0);
+                                B = &((registers)[B_index]);
+                                C = &((registers)[C_index]);
+                        }
+                        else {
+                                A_index = Bitpack_getu(inst, 3, 6);
+                                B_index = Bitpack_getu(inst, 3, 3);
+                                C_index = Bitpack_getu(inst, 3, 0);
+                                A = &((registers)[A_index]);
+                                B = &((registers)[B_index]);
+                                C = &((registers)[C_index]);
+                        }
+                }
+                uint32_t value;
+
+                switch (opcode) {
+                        case 0:
+                                /*pointers shall not be NULL*/
+                                assert(A != NULL);
+                                assert(B != NULL);
+                                assert(C != NULL);
+
+                                if (*C != 0) {
+                                        *A = *B;
+                                }
+                                break;
+                        case 1:
+                                /*pointers shall not be NULL*/
+                                assert(A != NULL);
+                                assert(B != NULL);
+                                assert(C != NULL);
+
+                                /*this retrieves word stored at $m[$r[B]][$r[C]]*/
+                                uint32_t word = get_word(mem, *B, *C);
+
+                                /*the set $r[A] receive what returned above*/
+                                *A = word;
+                                break;
+                        case 2:
+                                /*pointers shall not be NULL*/
+                                assert(A != NULL);
+                                assert(B != NULL);
+                                assert(C != NULL);
+
+                                put_word(mem, *A, *B, *C);
+                                break;
+                        case 3:
+                                assert(A != NULL);
+                                assert(B != NULL);
+                                assert(C != NULL);
+                                *A = (*B + *C) % 4294967296;
+                                break;
+                        case 4:
+                                assert(A != NULL);
+                                assert(B != NULL);
+                                assert(C != NULL);
+                                *A = ((*B) * (*C)) % 4294967296;
+                                break;
+                        case 5:
+                                /*pointers shall not be NULL*/
+                                assert(A != NULL);
+                                assert(B != NULL);
+                                assert(C != NULL);
+
+                                /*C can't be 0 because can't divide any number by 0*/
+                                assert(*C != 0);
+                                *A = ((*B) / (*C));
+                                break;
+                        case 6:
+                                /*pointers shall not be NULL*/
+                                assert(A != NULL);
+                                assert(B != NULL);
+                                assert(C != NULL);
+
+                                *A = ~((*B) & (*C));
+                                break;
+                        case 7:
+                                status = true;
+                                break;
+                        case 8:
+                                /*pointers shall not be NULL*/
+                                assert(B != NULL);
+                                assert(C != NULL);
+
+                                /*creates new segment with size equal to $r[C] and initializes
+                                        each word to 0*/
+                                *B = map(mem, *C);
+                                break;
+                        case 9:
+                                assert(C != NULL);
+                                assert(*C != 0);
+
+                                /*segment $m[$r[C]] is unmapped*/
+                                unmap(mem, *C);
+                                break;
+                        case 10:
+                                /*C shall never be Null*/
+                                assert(C != NULL);
+
+                                /*only values from 0 to 255 are allowed*/
+                                assert(*C <= 255);
+
+                                /*Write 8byte to the stdout*/
+                                fprintf(stdout, "%c", *C);
+                                break;
+                        case 11:
+                                /*C shall never be Null*/
+                                assert(C != NULL);
+
+                                /*read in an 8 byte value*/
+                                char data = fgetc(stdin);
+                                if (data != EOF) { 
+                                        if (data == 10){ /*catches new line*/
+                                                input(C, stdin);
+                                        }
+                                        else {
+                                                *C = data;
+                                        }
+                                }
+                                else { 
+                                        /*register C is loaded with a full 32-bit word in which
+                                        every bit is 1*/
+                                        *C = 4294967295;
+                                }
+                                break;
+                        case 12:
+                                /*pointers shall not be NULL*/
+                                assert(B != NULL);
+                                assert(C != NULL);
+
+                                /* set new 0 segment to register B */
+                                new_program(mem, *B);
+                                /* -1 because it iterates again upon return */
+                                prog_counter = *C - 1;
+                                segment = get_segment(mem, 0);
+                                break;
+                        case 13:
+                        /* special case, re bitpack */
+                                A_index = Bitpack_getu(inst, 3, 25);
+                                A = &((registers)[A_index]);
+                                value = Bitpack_getu(inst, 25, 0);
+                                assert(A != NULL);
+                                *A = value;
+                                break;
+                        default:
+                                fprintf(stderr, "Invalid instruction. opcode %d\n", 
+                                        opcode);
+                                exit(EXIT_FAILURE);
+                                break;
+                }
+
+                prog_counter++;
+        }
+
+        /* UM_free */
+        delete_mem(mem);
+        FREE(registers);
         fclose(source);
 	exit(EXIT_SUCCESS);
 }
