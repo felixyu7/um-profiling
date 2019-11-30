@@ -38,7 +38,7 @@ UM UM_init(FILE *source);
 void execute_inst(UM machine);
 void UM_free(UM machine);
 void UM_execute(UM machine);
-void run_instruction(UM machine, uint32_t inst, bool *status, uint32_t **segment);
+void run_instruction(UM machine,uint32_t inst,bool *status,uint32_t **segment);
 bool valid_extension(char *);
 
 bool Bitpack_fitsu(uint64_t n, unsigned width);
@@ -81,7 +81,15 @@ int main(int argc, char *argv[])
         }
 
         /* UM_init */ 
-        Main_memory mem = init_memory();
+        //Main_memory mem = init_memory();
+        Main_memory mem = malloc(sizeof(struct Main_memory));
+
+        mem->mapped = Seq_new(0);
+
+        mem->unmapped = Seq_new(0);
+        for (int i = 0; i < 128; i++) {
+                Seq_addhi(mem->unmapped, (void *)(uintptr_t)i);
+        }
 
         /* read_file */ 
         /* load file */
@@ -133,12 +141,12 @@ int main(int argc, char *argv[])
                 /* load_value is special case */
                 if (opcode != 13) {
                         if (opcode == 9 || opcode == 10 || opcode == 11) {
-                                /* unmap, output, input only use 1 register */
+                                /*unmap, output, input only use 1 register*/
                                 C_index = Bitpack_getu(inst, 3, 0);
                                 C = &((registers)[C_index]);
                         }
                         else if (opcode == 8 || opcode == 12) { 
-                                /* map and load_program only use 2 registers */
+                                /*map and load_program only use 2 registers*/
                                 B_index = Bitpack_getu(inst, 3, 3);
                                 C_index = Bitpack_getu(inst, 3, 0);
                                 B = &((registers)[B_index]);
@@ -172,11 +180,12 @@ int main(int argc, char *argv[])
                                 assert(B != NULL);
                                 assert(C != NULL);
 
-                                /*this retrieves word stored at $m[$r[B]][$r[C]]*/
-                                uint32_t word = get_word(mem, *B, *C);
-
+                                /*retrieve word stored at $m[$r[B]][$r[C]]*/
+                                uint32_t *temp = get_segment(mem, *B);
+                                assert(temp != NULL);
                                 /*the set $r[A] receive what returned above*/
-                                *A = word;
+                                *A = temp[*C + 1];
+                                
                                 break;
                         case 2:
                                 /*pointers shall not be NULL*/
@@ -204,7 +213,8 @@ int main(int argc, char *argv[])
                                 assert(B != NULL);
                                 assert(C != NULL);
 
-                                /*C can't be 0 because can't divide any number by 0*/
+                                /*C can't be 0 because can't divide any
+                                                         number by 0*/
                                 assert(*C != 0);
                                 *A = ((*B) / (*C));
                                 break;
@@ -224,8 +234,8 @@ int main(int argc, char *argv[])
                                 assert(B != NULL);
                                 assert(C != NULL);
 
-                                /*creates new segment with size equal to $r[C] and initializes
-                                        each word to 0*/
+                                /*creates new segment with size equal to 
+                                $r[C] and initializes each word to 0*/
                                 *B = map(mem, *C);
                                 
                                 break;
@@ -261,8 +271,9 @@ int main(int argc, char *argv[])
                                         }
                                 }
                                 else { 
-                                        /*register C is loaded with a full 32-bit word in which
-                                        every bit is 1*/
+                                        /*register C is loaded with a 
+                                        full 32-bit word in which every
+                                        bit is 1*/
                                         *C = 4294967295;
                                 }
                                 break;
@@ -273,7 +284,7 @@ int main(int argc, char *argv[])
 
                                 /* set new 0 segment to register B */
                                 new_program(mem, *B);
-                                /* -1 because it iterates again upon return */
+                                /* -1 because it iterates again upon return*/
                                 prog_counter = *C - 1;
                                 segment = Seq_get(mem->mapped, 0);
                                 break;
@@ -286,8 +297,9 @@ int main(int argc, char *argv[])
                                 *A = value;
                                 break;
                         default:
-                                fprintf(stderr, "Invalid instruction. opcode %d\n", 
-                                        opcode);
+                                fprintf(stderr, 
+                                    "Invalid instruction. opcode %d\n",
+                                                             opcode);
                                 exit(EXIT_FAILURE);
                                 break;
                 }
@@ -360,31 +372,6 @@ uint64_t Bitpack_newu(uint64_t word, unsigned width, unsigned lsb,
         return (word | value);
 }
 
-
-
-/*
-  Parameters: none
-  Returns: memory struct
-
-  Does: creates a memory struct and initializes it to the content
-        of the pointer that was passed in
-*/
-Main_memory init_memory()
-{
-        Main_memory ret = malloc(sizeof(struct Main_memory));
-
-        ret->mapped = Seq_new(0);
-
-        ret->unmapped = Seq_new(0);
-        for (int i = 0; i < 128; i++) {
-                Seq_addhi(ret->unmapped, (void *)(uintptr_t)i);
-        }
-
-        return ret;
-}
-
-
-
 /*
   Parameters: memory struct and segment index
   Returns: pointer to a segment
@@ -404,27 +391,7 @@ void put_word(Main_memory mem, uint32_t address, int offset, uint32_t val)
         temp[offset + 1] = val;
 }
 
-/*
-  Parameters: memory struct, segment index, and offset
-  Returns: uint32_t value
 
-  Does: retrieves a word at $m[address][offset]
-*/
-uint32_t get_word(Main_memory mem, uint32_t address, int offset)
-{
-        uint32_t *temp = get_segment(mem, address);
-        assert(temp != NULL);
-        /* add one to account for extra space to store size */
-        return temp[offset + 1];
-}
-
-/*
-  Parameters: memory struct and int value
-  Returns: uint32_t value that represents address to the mapped segment
-
-  Does: maps a segment of given size and it also initializes every
-                word in the segment
-*/
 uint32_t map(Main_memory mem, size_t size)
 {
         int curr_length = Seq_length(mem->mapped);
