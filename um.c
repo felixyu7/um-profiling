@@ -6,7 +6,7 @@
  * Assignment: HW7, UM Profiling
  * A profiled version of our previous UM implementation. Designed
  * to maximize performance and speed.
- * Benchmarks (Lab 120):
+ * Benchmarks:
  * midmark.um - 0.39 s
  * sandmark.umz - 9.70 s
  * 

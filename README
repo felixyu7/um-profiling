@@ -22,6 +22,10 @@ Implementation:
 um.c - Contains the entire UM implementation profiled and optimized for 
 maximum performance.
 
+midmark.um - "small" benchmark.
+
+sandmark.umz - "big" benchmark.
+
 README - This file.
 
 
