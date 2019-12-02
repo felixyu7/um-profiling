@@ -3,11 +3,11 @@
  * COMP40
  * Fall 2019
  *
- * Assignment: HW6, UM
+ * Assignment: HW7, UM Profiling
  * Documentation and other information
  * 
  * Created by Felix J. Yu (fyu04), Micomyiza Theogene (tmicom1)
- * November 20, 2019
+ * December 2nd, 2019
  */
 
 Acknowledgements: 
@@ -16,121 +16,31 @@ COMP40 Professors, for teaching and giving lectures about relevant topics
 David R. Hanson, for providing the base data structures needed for this
 assignment. (Sequences)
 
-COMP40 Staff, for providing the implementation for Bitpack
-
 
 Implementation:
 
-um.c - Driver program of UM, handles initialization, execution, and destruction
-of the UM representation.
-
-memory.c - Memory module of UM which provides a representation for the UM's 
-memory, as well as any functions pertaining to the management and creation
-of memory.
-
-memory.h - Interface for the memory module.
-
-instructions.c - Instructions module of UM which provides an implementation
-of all the instructions which are supported by this UM. 
-
-instructions.h - Interface for the instructions module.
-
-bitpack.c - Module that handles bitpacking and unpacking of words, such as
-creating a word, adding values to a word, and extracting values from a word.
+um.c - Contains the entire UM implementation profiled and optimized for 
+maximum performance.
 
 README - This file.
 
 
-Departures from Design:
-Initially, we thought to use a sequence of sequences. Upon realizing that 
-this would allow a client to add words to a sequence indefinitely (since
-sequences automatically expand), we decided to go with an dynamic array
-whose size is kept track of by putting it in the first element of the
-array.
+Final UM Analysis:
 
+On midmark, Seq_get takes up most of the time by far, over 20% as reported by 
+kcachegrind. This is primarily due to the number of times it is used during 
+benchmarking, as it is central to all memory operations. Because Seq_get is
+a Hanson implementation, the assembly code cannot be improved as we cannot
+change the implementation of these functions.
 
-Architecture:
-The UM Module is the main driver file of the program. As such, it is the only
-module that knows the full information of the UM representation (registers,
-program counter). It interacts with memory during initialization, when it needs
-to initialize the 0 segment and program. It interacts with instructions 
-throughout the run, as it calls each respective instruction as needed.
-
-The memory module is in charge of memory management. It is the only module with
-that accesses the mapped and unmapped sequences of the memory representation.
-It does not directly interact with any of the other modules.
-
-The instructions module can run each of the supported instructions. It is 
-called by the UM module. It interacts with memory when an instruction requires
-the alteration of memory, for example, map segment, unmap segment etc.
-
-
-50 Million Instructions:
-It took about 8.5 seconds for this UM to finish the 30109 instructions
-inside midmark. Assuming the time stayed somewhat consistent, it would
-take 14,115.38 seconds, or 3.92 hours.
-
-
-UM Unit Tests:
-
-1. halt: this test halt instruction. the um.c receives a 
-        file with one instruction. Then, um.c is expected to terminate
-        everthing.
-2. halt-verbose: this test halt instruction when there are other
-        instructions after halt. None of the instructions after
-        halt shall be implemented.
-
-3. add: this file test input, add, halt, and output instructions. it 
-        receives two values from standard input and then display their
-        sum on standard output. Then halt.
-
-4. division: test division, halt, and output instructions. it divides 
-        two numbers then display results on the standard output.
-        Then halt.
-
-5. map_segment: test map_segment, segment_store_ segment_load, halt,
-        and output. It maps segment, store data into that segment,
-        hen load the value from the created segment. Finally,
-        display retulsts on the standard output. Then halt.
-
-6. unmap_segment: test map_segment, segment_store_ segment_load, halt,
-        unmap_segment, and output.  It maps two segments, then
-        unmap one of them, then map another segment, it loads 
-        value into particular segment, then it retrieves the 
-        value from that segment then prints the results on 
-        standard output. Then halt.
-
-7. multiply: test multiply, output, and halt. It loads various values
-        into several registers, and multiply values in two 
-        registers, then prints results on standard output. It
-        epeats the circle for 5 more times. Then halt.
-
-8. conditional_move: test conditional move in two occasion. First, the
-        value in register C is not equal to 0. Thus, 
-        should move value in register B into register A.
-        Second, the value in register C is 0. Therefore,
-        no operation shall be performed.
-
-9. bitwise_NAND: test both conditional move and bitwise nand instructions.
-        it operates on two values where results is 0 which is the lowest
-        value attainable. Then, other operation is done on two values
-        so that the result is the largest number that can fit in 32 bits.
-        hen halt.
-
-
-10. print-passed: test output. it loads values into registers and then 
-            display those values on standard output. Then halt.
 
 Time Spent:
 
 Analysis of Problem: Understanding and designing solution for problem
-3 Hours
-
-Preparation of Design:
-3 Hours
+1 Hour
 
 Solving the Problem:
-20 Hours
+10 Hours
 
-Total: ~26 Hours
+Total: ~11 Hours
 

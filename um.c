@@ -3,12 +3,15 @@
  * COMP40
  * Fall 2019
  *
- * Assignment: HW6, Universal Virtual Machine
- * Main driver program of the UM implementation. Responsible for reading
- * input, calling instructions, and running the program loop. 
+ * Assignment: HW7, UM Profiling
+ * A profiled version of our previous UM implementation. Designed
+ * to maximize performance and speed.
+ * Benchmarks (Lab 120):
+ * midmark.um - 0.39 s
+ * sandmark.umz - 9.70 s
  * 
  * Created by Felix J. Yu (fyu04), Micomyiza Theogene (tmicom1)
- * November 17, 2019
+ * December 2, 2019
  */
 
 #include <stdio.h>
@@ -19,27 +22,12 @@
 #include <stdbool.h>
 #include "seq.h"
 #include "assert.h"
-//#include "instructions.h"
+
 typedef struct Main_memory {
         Seq_T mapped;
         Seq_T unmapped;
 } *Main_memory;
 
-
-typedef struct UM {
-        uint32_t *registers;
-        Main_memory mem;
-        uint32_t prog_counter;
-} *UM;
-
-
-void read_file(FILE *source, UM machine);
-UM UM_init(FILE *source);
-void execute_inst(UM machine);
-void UM_free(UM machine);
-void UM_execute(UM machine);
-void run_instruction(UM machine,uint32_t inst,bool *status,uint32_t **segment);
-bool valid_extension(char *);
 
 bool Bitpack_fitsu(uint64_t n, unsigned width);
 uint64_t Bitpack_getu(uint64_t word, unsigned width, unsigned lsb);
@@ -52,7 +40,6 @@ uint64_t Bitpack_newu(uint64_t word, unsigned width, unsigned lsb,
 Main_memory init_memory();
 uint32_t *get_segment(Main_memory mem, uint32_t address);
 void put_word(Main_memory mem, uint32_t address, int offset, uint32_t val);
-uint32_t get_word(Main_memory mem, uint32_t address, int offset);
 uint32_t map(Main_memory mem, size_t size);
 void unmap(Main_memory mem, uint32_t address);
 void new_program(Main_memory mem, uint32_t source);
@@ -81,7 +68,6 @@ int main(int argc, char *argv[])
         }
 
         /* UM_init */ 
-        //Main_memory mem = init_memory();
         Main_memory mem = malloc(sizeof(struct Main_memory));
 
         mem->mapped = Seq_new(0);
@@ -311,21 +297,17 @@ int main(int argc, char *argv[])
         delete_mem(mem);
         free(registers);
         fclose(source);
-	    exit(EXIT_SUCCESS);
+	exit(EXIT_SUCCESS);
 }
 
 /*
-  Parameters: universal machine representation
-  Returns: none
-
-  Does: frees all memory associated with the UM
-*/
-void UM_free(UM machine) {
-        delete_mem(machine->mem);
-        free(machine->registers);
-        free(machine);
-}
-
+ * Function: Bitpack_getu
+ * Input: 64 bit unsigned integer word, and width, 
+ * and least significant bit
+ * Returns: uint64_t value of queried bitword
+ * Returns bits of length width from the entire word stating at lsb,
+ * with default value as 0.
+ */
 uint64_t Bitpack_getu(uint64_t word, unsigned width, unsigned lsb)
 {
         assert(width <= 64);
@@ -339,6 +321,13 @@ uint64_t Bitpack_getu(uint64_t word, unsigned width, unsigned lsb)
         return (word & temp) >> lsb;
 }
 
+/*
+ * Function: Bitpack_fitsu
+ * Input: 64 bit unsigned integer to determine fit, and tested width
+ * Returns: Boolean value
+ * Should return boolean value, true if word of length width can fit inside
+ * unsigned integer. Default value is false if width is 0
+ */
 bool Bitpack_fitsu(uint64_t n, unsigned width)
 {
         uint64_t temp = 1;
@@ -353,6 +342,16 @@ bool Bitpack_fitsu(uint64_t n, unsigned width)
         }
 }
 
+/*
+ * Function: Bitpack_newu
+ * Parameters: 64 bit unsigned integer word, width of bits, 
+ * least significant bit of where to put bits, and 64 bit unsigned integer
+ * bit that you want to insert into the word
+ * Returns: uint64_t value of new word with added value
+ * Adds value with length width to the word starting at lsb. Errors if 
+ * value would be longer than the length of word, or if width is longer than
+ * 64.
+ */
 uint64_t Bitpack_newu(uint64_t word, unsigned width, unsigned lsb, 
         uint64_t value)
 {
@@ -383,7 +382,12 @@ uint32_t *get_segment(Main_memory mem, uint32_t address)
         return (uint32_t *)Seq_get(mem->mapped, address);
 }
 
+/*
+  Parameters: memory struct, segment index, memory address, value to be put in
+  Returns: pointer to a segment
 
+  Does: puts the given value into the given spot in memory
+*/
 void put_word(Main_memory mem, uint32_t address, int offset, uint32_t val)
 {
         uint32_t *temp = get_segment(mem, address);
@@ -391,7 +395,13 @@ void put_word(Main_memory mem, uint32_t address, int offset, uint32_t val)
         temp[offset + 1] = val;
 }
 
+/*
+  Parameters: memory struct and int value
+  Returns: uint32_t value that represents address to the mapped segment
 
+  Does: maps a segment of given size and it also initializes every
+                word in the segment
+*/
 uint32_t map(Main_memory mem, size_t size)
 {
         int curr_length = Seq_length(mem->mapped);
@@ -486,9 +496,6 @@ void delete_mem(Main_memory mem)
         Seq_free(&mem->unmapped);
         free(mem);
 }
-
-
-
 
 /*
   Parameters: pointer to register C
