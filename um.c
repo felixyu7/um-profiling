@@ -28,14 +28,15 @@ typedef struct Main_memory {
         Seq_T unmapped;
 } *Main_memory;
 
-
+                /*Bitpack functions*/
+/************************************************************************/
 bool Bitpack_fitsu(uint64_t n, unsigned width);
 uint64_t Bitpack_getu(uint64_t word, unsigned width, unsigned lsb);
 uint64_t Bitpack_newu(uint64_t word, unsigned width, unsigned lsb,
                       uint64_t value);
 
 
-        
+            /*Main helper functions*/
 /*************************************************************************/
 Main_memory init_memory();
 uint32_t *get_segment(Main_memory mem, uint32_t address);
@@ -166,10 +167,11 @@ int main(int argc, char *argv[])
                                 assert(B != NULL);
                                 assert(C != NULL);
 
-                                /*retrieve word stored at $m[$r[B]][$r[C]]*/
+                                /*retrieve segment $m[$r[B]][$r[C]]*/
                                 uint32_t *temp = get_segment(mem, *B);
                                 assert(temp != NULL);
-                                /*the set $r[A] receive what returned above*/
+                                /*the set $r[A] receive word stored
+                                              at $m[$r[B]][$r[C]]*/
                                 *A = temp[*C + 1];
                                 
                                 break;
@@ -275,7 +277,7 @@ int main(int argc, char *argv[])
                                 segment = Seq_get(mem->mapped, 0);
                                 break;
                         case 13:
-                        /* special case, re bitpack */
+                                /* special case, read bitpack */
                                 A_index = Bitpack_getu(inst, 3, 25);
                                 A = &((registers)[A_index]);
                                 value = Bitpack_getu(inst, 25, 0);
